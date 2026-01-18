@@ -1,0 +1,86 @@
+name: Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "New version (e.g., 1.2.3)"
+                required: true
+                type: string
+
+jobs:
+    test:
+        name: Test
+        uses: ./.github/workflows/test.yml
+    bump-version:
+        needs: test
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@main
+            - name: Install cargo-edit
+              run: cargo binstall cargo-edit --no-confirm
+            - name: Update version in Cargo.toml
+              run: cargo set-version ${{ inputs.version }}
+
+            - name: Commit and push version bump
+              run: |
+                  git config --local user.email "github-actions@users.noreply.github.com"
+                  git config --local user.name "GitHub Actions"
+                  git add Cargo.toml
+                  git add Cargo.lock
+                  git commit -m "Bump version to ${{ inputs.version }}"
+                  git tag v${{ inputs.version }}
+                  git push
+                  git push --tags
+
+    build:
+        needs: bump-version
+        strategy:
+            matrix:
+                include:
+                    - os: ubuntu-latest
+                      arch: x86_64
+                      platform: linux
+                    - os: windows-latest
+                      arch: x86_64
+                      platform: windows
+                    - os: macos-latest
+                      arch: x86_64
+                      platform: macos
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+            - run: cargo build --release
+            - name: Upload binary
+              uses: actions/upload-artifact@v4
+              with:
+                  name: a2s-query-${{ matrix.platform }}-${{ matrix.arch }}
+                  path: target/release/a2s-query${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+    release:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
+            - name: Zip all artifacts
+              run: |
+                  cd artifacts
+                  for dir in */ ; do
+                    cd $dir
+                    zip -r "${dir%/}.zip" .
+                    cd ..
+                  done
+            - name: Create release
+              uses: softprops/action-gh-release@v1
+              with:
+                  tag_name: v${{ inputs.version }}
+                  files: artifacts/**/*.zip
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
