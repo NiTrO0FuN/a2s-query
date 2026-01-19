@@ -75,7 +75,7 @@ Response:
     "bots": 0,
     "server_type": "Dedicated",
     "environment": "Linux",
-    "password": "false",
+    "password": false,
     "vac": true,
     "version": "2025.03.26"
 }
